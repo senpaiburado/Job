@@ -14,7 +14,9 @@ namespace Job
         {
             try
             {
+                var container = new EmployersContainer();
                 var Bot = new TelegramBotClient(Token);
+                await container.Init(Bot);
                 await Bot.SetWebhookAsync("");
                 int offset = 0;
                 while (true)
@@ -25,8 +27,46 @@ namespace Job
                     {
                         var message = update.Message;
 
-                        
+                        if (message.Chat.Id != EmployersContainer.AdminID)
+                        {
+                            if (!await container.Contains(message.Chat.Id))
+                            {
+                                int result = await container.AddEmployerUnsigned(message.Chat.Id, "", Bot);
+                            }
 
+                            Employer employer = await container.GetEmployerByID(message.Chat.Id);
+
+                            if (employer.state == Employer.State.Signed)
+                            {
+                                if (employer.Event == Employer.ActiveState.Default)
+                                {
+                                    if (message.isCommand("/add_day"))
+                                    {
+
+                                    }
+                                    else if (message.isCommand("/set_time"))
+                                    {
+
+                                    }
+                                    else if (message.isCommand("/get_info"))
+                                    {
+
+                                    }
+                                    else
+                                    {
+
+                                    }
+                                }
+                            }
+                            else
+                            {
+
+                            }
+                        }
+                        else
+                        {
+
+                        }
                         offset = update.Id + 1;
                     }
                 }
@@ -35,6 +75,16 @@ namespace Job
             {
                 Console.WriteLine(ex.Message);
             }
+        }
+    }
+    public static class AdditionalCommands
+    {
+        public static bool isCommand(this Telegram.Bot.Types.Message message, string text)
+        {
+            if (message.Text.ToLower().Contains(text.ToLower()))
+                return true;
+            else
+                return false;
         }
     }
 }

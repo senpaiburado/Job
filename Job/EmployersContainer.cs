@@ -12,15 +12,11 @@ namespace Job
         private Dictionary<long, Employer> employers = new Dictionary<long, Employer>();
 
         public static Sender AdminSender;
+        public static long AdminID;
 
         public async Task<bool> Contains(long EmployerID)
         {
-            foreach (var key in employers.Keys)
-            {
-                if (key == EmployerID)
-                    return await Task<bool>.FromResult(true);
-            }
-            return await Task<bool>.FromResult(false); ;
+            return await Task<bool>.FromResult(employers.Keys.Contains(EmployerID));
         }
 
         public async Task<bool> Contains(string Name)
@@ -34,34 +30,45 @@ namespace Job
             return await Task<bool>.FromResult(false);
         }
 
+        public async Task<Employer> GetEmployerByID(long ID)
+        {
+            return await Task<Employer>.FromResult(employers.Values.SingleOrDefault(x => x.ID == ID));
+        }
+
+        public async Task<Employer> GetEmployerByKey(int key)
+        {
+            return await Task<Employer>.FromResult(employers.Values.SingleOrDefault(x => x.Key == key));
+        }
+
         public async Task<string> Init(Telegram.Bot.TelegramBotClient bot)
         {
-            AdminSender = new Sender(0L, bot);
+            AdminSender = new Sender(AdminID, bot);
             if (await RestoreFromDatabase())
                 return "Ошибка восстановления из базы данных!";
             await InitSenders(bot);
             return "Данные успешно восстановлены!";
         }
 
-        public async Task<int> AddEmployerUnsigned(long ID, string firstname, string lastname, Telegram.Bot.TelegramBotClient bot)
+        public async Task<int> AddEmployerUnsigned(long EmployerID, string name, Telegram.Bot.TelegramBotClient bot)
         {
-            if (await Contains(ID))
+            if (!await Contains(EmployerID))
                 return 0;
-            Employer employer = new Employer(firstname, lastname, ID, bot, false);
+            Employer employer = new Employer(name, EmployerID, bot, false);
             employer.Days = 0;
             employer.Salary = 0.0f;
+            employer.TimeToNotify = 18;
             using (var con = new MySqlConnection(BotProgram.ConnectionString))
             {
-                var command = new MySqlCommand($"INSERT INTO employers SET id = {ID}, name = '{employer.Name}';", con);
+                var command = new MySqlCommand($"INSERT INTO employers SET id = {EmployerID}, name = '{employer.Name}';", con);
                 await con.OpenAsync();
                 try
                 {
                     await command.ExecuteNonQueryAsync();
-                    command.CommandText = $"SELECT ikey FROM employers WHERE id = {ID};";
+                    command.CommandText = $"SELECT ikey FROM employers WHERE id = {EmployerID};";
                     var reader = command.ExecuteReader();
                     employer.Key = reader.GetInt32("ikey");
                     await con.CloseAsync();
-                    employers.Add(ID, employer);
+                    employers.Add(EmployerID, employer);
                     return 1;
                 }
                 catch (System.Data.Common.DbException ex)
@@ -74,7 +81,15 @@ namespace Job
             }
         }
 
-        public async Task<bool> RestoreFromDatabase()
+        public async Task<bool> DeleteEmployerByKey(int key)
+        {
+            if (employers.Remove(employers.Values.SingleOrDefault(x => x.Key == key).ID))
+                return await Task.FromResult(true);
+            else
+                return await Task.FromResult(false);
+        }
+
+        private async Task<bool> RestoreFromDatabase()
         {
             try
             {
@@ -86,11 +101,12 @@ namespace Job
                     {
                         while (await reader.ReadAsync())
                         {
-                            Employer emp = new Employer(reader.GetString("name"), "", reader.GetInt64("id"),
+                            Employer emp = new Employer(reader.GetString("name"), reader.GetInt64("id"),
                                 null, reader.GetBoolean("confirmed"));
                             emp.Days = reader.GetInt32("days");
                             emp.Salary = reader.GetFloat("salary");
                             emp.Key = reader.GetInt32("ikey");
+                            emp.TimeToNotify = reader.GetInt32("notify_time");
                             employers.Add(emp.ID, emp);
                         }
                     }
@@ -105,7 +121,7 @@ namespace Job
             }
         }
 
-        public async Task InitSenders(Telegram.Bot.TelegramBotClient sender)
+        private async Task InitSenders(Telegram.Bot.TelegramBotClient sender)
         {
             await Task.Run(() =>
             {

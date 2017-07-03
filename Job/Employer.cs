@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.Text;
 using System.Threading.Tasks;
+using System.Linq;
 
 namespace Job
 {
@@ -16,19 +17,32 @@ namespace Job
             Unsigned, Signed
         }
 
+        public enum ActiveState
+        {
+            Default, SetName
+        }
+
         public int Key { get; set; }
 
         public int Days { get; set; }
         public float Salary { get; set; }
 
-        public State state { get; set; }
+        public int TimeToNotify { get; set; }
 
-        public Employer(string firstname, string lastname, long ChatId, Telegram.Bot.TelegramBotClient sender, bool signed)
+        public State state { get; set; }
+        public ActiveState Event { get; set; }
+
+        public Employer(string name, long ChatId, Telegram.Bot.TelegramBotClient sender, bool signed)
         {
-            Name = $"{firstname} {lastname}";
+            Name = name;
             ID = ChatId;
             InitSender(sender);
             state = signed ? State.Signed : State.Unsigned;
+            if (string.IsNullOrWhiteSpace(Name))
+            {
+                Sender.SendAsync("Напишите Ваше имя:").Wait();
+                Event = ActiveState.SetName;
+            }
         }
 
         public void InitSender(Telegram.Bot.TelegramBotClient Sender)
