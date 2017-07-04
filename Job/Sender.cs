@@ -26,6 +26,10 @@ namespace Job
             {
                 Console.WriteLine(ex.Message);
             }
+            catch (Exception ex)
+            {
+                Console.WriteLine(ex.Message);
+            }
         }
         public void Init(Telegram.Bot.TelegramBotClient Sender)
         {

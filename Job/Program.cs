@@ -8,7 +8,7 @@ namespace Job
     {
         static void Main(string[] args)
         {
-            string token = "";
+            string token = "421505802:AAHvlIMHgHW8ZHx2-N8SlbPOJ_9ImOfDjPo";
             string connection = "Server=localhost;Uid=root;pwd=xjkfr2017;";
             using (var con = new MySqlConnection(connection))
             {

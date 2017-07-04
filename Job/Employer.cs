@@ -9,7 +9,7 @@ namespace Job
 {
     class Employer
     {
-        Sender Sender { get; set; }
+        public Sender Sender { get; set; }
         public string Name { get; set; }
         public long ID { get; set; }
         public enum State
@@ -19,7 +19,7 @@ namespace Job
 
         public enum ActiveState
         {
-            Default, SetName
+            Default, SetName, Wait, SetNameConfirm, AddDaySalary, AddDayPlace, SetTime, ResetData
         }
 
         public int Key { get; set; }
@@ -32,12 +32,17 @@ namespace Job
         public State state { get; set; }
         public ActiveState Event { get; set; }
 
+        private float temp_salary { get; set; }
+
+        public bool ResetConfirming { get; set; }
+
         public Employer(string name, long ChatId, Telegram.Bot.TelegramBotClient sender, bool signed)
         {
             Name = name;
             ID = ChatId;
             InitSender(sender);
             state = signed ? State.Signed : State.Unsigned;
+            ResetConfirming = false;
             if (string.IsNullOrWhiteSpace(Name))
             {
                 Sender.SendAsync("Напишите Ваше имя:").Wait();
@@ -50,21 +55,110 @@ namespace Job
             this.Sender.Init(Sender);
         }
 
-        public async Task AddDay(float salary, string place)
+        public void SetDaySalary(float salary)
+        {
+            temp_salary = salary;
+        }
+
+        public async Task AddDay(string place)
         {
             Days++;
-            Salary += salary;
-            await EmployersContainer.AdminSender.SendAsync($"{Name} сегодня работал. Заработал: {salary} руб. Место: {place}.");
+            Salary += temp_salary;
+            await EmployersContainer.AdminSender.SendAsync($"{Name} сегодня работал. Заработал: {temp_salary} руб. Место: {place}. Дата: {DateTime.Now.ToString()}");
             using (var con = new MySqlConnection(BotProgram.ConnectionString))
             {
-                var command = new MySqlCommand($"UPDATE employers SET days := (days+1), salary := (salary+{salary}) WHERE id = {ID};");
+                var command = new MySqlCommand($"UPDATE employers SET days := (days+1), salary := (salary+{temp_salary}) WHERE id = {ID};");
                 await con.OpenAsync();
                 await command.ExecuteNonQueryAsync();
-                command.CommandText = $"INSERT INTO jobs SET name = '{Name}, place = '{place}', salary = {salary}, DateOfWork = now();";
+                command.CommandText = $"INSERT INTO jobs SET name = '{Name}, place = '{place}', salary = {temp_salary}, DateOfWork = now();";
                 await command.ExecuteNonQueryAsync();
                 await con.CloseAsync();
             }
+            temp_salary = 0;
             await Sender.SendAsync("День работы добавлен!");
+            Event = ActiveState.Default;
+        }
+
+        public async Task SetTime(int time)
+        {
+            try
+            {
+                using (var con = new MySqlConnection(BotProgram.ConnectionString))
+                {
+                    var command = new MySqlCommand($"UPDATE employers SET notify_time = {time} WHERE ikey = {Key};", con);
+                    await con.OpenAsync();
+                    await command.ExecuteNonQueryAsync();
+                    await con.CloseAsync();
+                }
+                TimeToNotify = time;
+                await Sender.SendAsync($"Время установлено. Уведомления будут приходить в {time}:00");
+            }
+            catch (Exception ex)
+            {
+                await Sender.SendAsync("Ошибка при работе с базой данных!");
+                Console.WriteLine(ex.Message);
+            }
+            Event = ActiveState.Default;
+        }
+
+        public async Task SendRequestToConfirmEmployer()
+        {
+            string message = $"Работник {Name} просит Вашего подтверждения! Ключ - {Key}.\n";
+            message += $"Чтобы подтвердить, отправьте мне сообщение: \"Подтвердить: {Key}\"";
+            message += $"Шаблоны:\nПодтвердить: ключ\nОтклонить: ключ";
+            await EmployersContainer.AdminSender.SendAsync(message);
+            Event = ActiveState.Wait;
+            BotProgram.requests.Add(Key, Name);
+        }
+
+        public async Task GetAnswerFromChief(bool confirmed)
+        {
+            if (confirmed)
+            {
+                state = State.Signed;
+                Event = ActiveState.Default;
+                using (var con = new MySqlConnection(BotProgram.ConnectionString))
+                {
+                    var command = new MySqlCommand($"UPDATE employers SET confirmed = true WHERE ikey = {Key};", con);
+                    await con.OpenAsync();
+                    await command.ExecuteNonQueryAsync();
+                    command.CommandText = $"UPDATE employers SET name = {Name} WHERE ikey = {Key};";
+                    await command.ExecuteNonQueryAsync();
+                    await con.CloseAsync();
+                }
+                await Sender.SendAsync("Вы были подтверждены! Теперь Вам доступны команды - /commands. Удачи!");
+            }
+            else
+            {
+                Event = ActiveState.SetName;
+                await Sender.SendAsync("К сожалению, Вас не подтвердило начальство. Ваши данные удалены.");
+                Sender = null;
+            }
+        }
+
+        public async Task Reset()
+        {
+            try
+            {
+                using (var con = new MySqlConnection(BotProgram.ConnectionString))
+                {
+                    var command = new MySqlCommand($"UPDATE employers SET days = 0, salary = 0 WHERE ikey = {Key};", con);
+                    await con.OpenAsync();
+                    await command.ExecuteNonQueryAsync();
+                    await con.CloseAsync();
+                }
+                ResetConfirming = false;
+                Days = 0;
+                Salary = 0;
+                await Sender.SendAsync("Количество дней и денег сброшено.");
+                await EmployersContainer.AdminSender.SendAsync($"{Name} (Ключ: {Key}) сбросил значения дней и денег.");
+            }
+            catch (Exception ex)
+            {
+                await Sender.SendAsync("Ошибка при работе с базой данных!");
+                Console.WriteLine(ex.Message);
+            }
+            Event = ActiveState.Default;
         }
     }
 }
