@@ -41,6 +41,8 @@ namespace Job
             Name = name;
             ID = ChatId;
             InitSender(sender);
+            if (Sender.bot == null)
+                Sender.bot = BotProgram.Bot;
             state = signed ? State.Signed : State.Unsigned;
             ResetConfirming = false;
             if (string.IsNullOrWhiteSpace(Name))
@@ -52,7 +54,7 @@ namespace Job
 
         public void InitSender(Telegram.Bot.TelegramBotClient Sender)
         {
-            this.Sender.Init(Sender);
+            this.Sender = new Sender(ID, Sender);
         }
 
         public void SetDaySalary(float salary)
@@ -67,10 +69,10 @@ namespace Job
             await EmployersContainer.AdminSender.SendAsync($"{Name} сегодня работал. Заработал: {temp_salary} руб. Место: {place}. Дата: {DateTime.Now.ToString()}");
             using (var con = new MySqlConnection(BotProgram.ConnectionString))
             {
-                var command = new MySqlCommand($"UPDATE employers SET days := (days+1), salary := (salary+{temp_salary}) WHERE id = {ID};");
+                var command = new MySqlCommand($"UPDATE employers SET days := (days+1), salary := (salary+{temp_salary}) WHERE id = {ID};", con);
                 await con.OpenAsync();
                 await command.ExecuteNonQueryAsync();
-                command.CommandText = $"INSERT INTO jobs SET name = '{Name}, place = '{place}', salary = {temp_salary}, DateOfWork = now();";
+                command.CommandText = $"INSERT INTO jobs SET name = '{Name}', place = '{place}', salary = {temp_salary}, DateOfWork = now();";
                 await command.ExecuteNonQueryAsync();
                 await con.CloseAsync();
             }
@@ -122,7 +124,7 @@ namespace Job
                     var command = new MySqlCommand($"UPDATE employers SET confirmed = true WHERE ikey = {Key};", con);
                     await con.OpenAsync();
                     await command.ExecuteNonQueryAsync();
-                    command.CommandText = $"UPDATE employers SET name = {Name} WHERE ikey = {Key};";
+                    command.CommandText = $"UPDATE employers SET name = '{Name}' WHERE ikey = {Key};";
                     await command.ExecuteNonQueryAsync();
                     await con.CloseAsync();
                 }

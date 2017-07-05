@@ -7,7 +7,7 @@ namespace Job
 {
     class Sender
     {
-        private Telegram.Bot.TelegramBotClient bot;
+        public Telegram.Bot.TelegramBotClient bot;
         private long EmployerID;
 
         public Sender(long EmployerID, Telegram.Bot.TelegramBotClient bot)
@@ -28,12 +28,10 @@ namespace Job
             }
             catch (Exception ex)
             {
-                Console.WriteLine(ex.Message);
+                Console.WriteLine($"Ex at 31 Sender: {ex.Message}");
+                bot = BotProgram.Bot;
+                await bot.SendTextMessageAsync(EmployerID, text, replyMarkup: replyMarkup);
             }
-        }
-        public void Init(Telegram.Bot.TelegramBotClient Sender)
-        {
-            bot = Sender;
         }
     }
 }

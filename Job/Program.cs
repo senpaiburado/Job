@@ -25,7 +25,15 @@ namespace Job
                 con.Close();
             }
             var bot = new BotProgram();
-            bot.Start(token).Wait();
+            try
+            {
+                bot.Start(token).Wait();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine(ex.Message);
+
+            }
         }
     }
 }

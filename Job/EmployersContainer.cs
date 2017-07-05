@@ -15,9 +15,9 @@ namespace Job
         public static Sender AdminSender;
         public static long AdminID = 295568848L;
 
-        public async Task<bool> Contains(long EmployerID)
+        public bool Contains(long EmployerID)
         {
-            return await Task<bool>.FromResult(employers.Keys.Contains(EmployerID));
+            return employers.Keys.Contains(EmployerID);
         }
 
         public async Task<bool> Contains(int key)
@@ -46,9 +46,17 @@ namespace Job
             return str.ToArray();
         }
 
-        public async Task<Employer> GetEmployerByID(long ID)
+        public Employer GetEmployerByID(long ID)
         {
-            return await Task<Employer>.FromResult(employers.Values.SingleOrDefault(x => x.ID == ID));
+            try
+            {
+                return employers.Values.SingleOrDefault(x => x.ID == ID);
+            }
+            catch (ArgumentNullException ex)
+            {
+                Console.WriteLine(ex.Message);
+                return null;
+            }
         }
 
         public async Task<Employer> GetEmployerByKey(int key)
@@ -59,16 +67,16 @@ namespace Job
         public async Task<string> Init(Telegram.Bot.TelegramBotClient bot)
         {
             AdminSender = new Sender(AdminID, bot);
-            if (await RestoreFromDatabase())
+            if (!await RestoreFromDatabase())
                 return "Ошибка восстановления из базы данных!";
-            await InitSenders(bot);
+            InitSenders(bot);
             return "Данные успешно восстановлены!";
         }
 
         public async Task<int> AddEmployerUnsigned(long EmployerID, string name, Telegram.Bot.TelegramBotClient bot)
         {
-            if (!await Contains(EmployerID))
-                return 0;
+            if (Contains(EmployerID))
+                return 1;
             Employer employer = new Employer(name, EmployerID, bot, false);
             employer.Days = 0;
             employer.Salary = 0.0f;
@@ -76,16 +84,24 @@ namespace Job
             using (var con = new MySqlConnection(BotProgram.ConnectionString))
             {
                 var command = new MySqlCommand($"INSERT INTO employers SET id = {EmployerID}, name = '{employer.Name}';", con);
-                await con.OpenAsync();
                 try
                 {
+                    await con.OpenAsync();
                     await command.ExecuteNonQueryAsync();
                     command.CommandText = $"SELECT ikey FROM employers WHERE id = {EmployerID};";
                     var reader = command.ExecuteReader();
+                    await reader.ReadAsync();
                     employer.Key = reader.GetInt32("ikey");
                     await con.CloseAsync();
                     employers.Add(EmployerID, employer);
-                    return 1;
+                    return 2;
+                }
+                catch (MySqlException ex)
+                {
+                    Console.WriteLine(ex.Message);
+                    if (con.State == System.Data.ConnectionState.Open)
+                        await con.CloseAsync();
+                    return 0;
                 }
                 catch (System.Data.Common.DbException ex)
                 {
@@ -101,7 +117,7 @@ namespace Job
         {
             try
             {
-                employers.Remove(GetEmployerByKey(key).Result.Key);
+                employers.Remove(GetEmployerByKey(key).Result.ID);
                 using (var con = new MySqlConnection(BotProgram.ConnectionString))
                 {
                     var command = new MySqlCommand($"DELETE FROM employers WHERE ikey = {key};", con);
@@ -122,6 +138,7 @@ namespace Job
         {
             try
             {
+                await UpdateJobPlaces();
                 using (var con = new MySqlConnection(BotProgram.ConnectionString))
                 {
                     var command = new MySqlCommand("SELECT * FROM employers;", con);
@@ -210,7 +227,7 @@ namespace Job
             }
         }
 
-        private async Task UpdateJobPlaces()
+        public async Task UpdateJobPlaces()
         {
             List<JobPlace> list = await GetPlacesFromDatabase();
 
@@ -224,15 +241,12 @@ namespace Job
             });
         }
 
-        private async Task InitSenders(Telegram.Bot.TelegramBotClient sender)
+        private void InitSenders(Telegram.Bot.TelegramBotClient sender)
         {
-            await Task.Run(() =>
+            foreach (var item in employers.Values)
             {
-                foreach (var item in employers.Values)
-                {
-                    item.InitSender(sender);
-                }
-            });
+                item.InitSender(sender);
+            }
         }
 
         public async Task<string> SetEmployerSigned(int key)

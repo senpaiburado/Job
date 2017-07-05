@@ -11,14 +11,16 @@ namespace Job
     class BotProgram
     {
         public static string ConnectionString = "Server=localhost;Database=Job;Uid=root;pwd=xjkfr2017;";
-        private EmployersContainer container = new EmployersContainer();
+        private EmployersContainer container;
+        public static TelegramBotClient Bot;
 
         public static Dictionary<int, string> requests = new Dictionary<int, string>();
         public async Task Start(string Token)
         {
             try
             {
-                var Bot = new TelegramBotClient(Token);
+                container = new EmployersContainer();
+                Bot = new TelegramBotClient(Token);
                 await container.Init(Bot);
                 await Bot.SetWebhookAsync("");
                 int offset = 0;
@@ -32,12 +34,12 @@ namespace Job
 
                         if (message.Chat.Id != EmployersContainer.AdminID)
                         {
-                            if (!await container.Contains(message.Chat.Id))
+                            if (!container.Contains(message.Chat.Id))
                             {
                                 int result = await container.AddEmployerUnsigned(message.Chat.Id, "", Bot);
                             }
 
-                            Employer employer = await container.GetEmployerByID(message.Chat.Id);
+                            Employer employer = container.GetEmployerByID(message.Chat.Id);
 
                             if (employer.state == Employer.State.Signed)
                             {
@@ -100,7 +102,7 @@ namespace Job
                                 else if (employer.Event == Employer.ActiveState.AddDayPlace)
                                 {
                                     await employer.AddDay(message.Text);
-                                    await employer.Sender.SendAsync("День работы добавлен!");
+                                    await container.UpdateJobPlaces();
                                 }
                                 else if (employer.Event == Employer.ActiveState.SetTime)
                                 {
@@ -189,6 +191,7 @@ namespace Job
                             {
                                 int key;
                                 int.TryParse(Regex.Match(message.Text, @"\d+").Value, out key);
+                                await container.GetEmployerByKey(key)?.Result?.Sender.SendAsync("Вас удалил начальник.");
                                 await container.DeleteEmployerByKey(key);
                             }
                             else if (message.isCommand("Информация о работнике:"))
@@ -204,15 +207,15 @@ namespace Job
                                 msg += $"Время уведомлений - {employer.TimeToNotify}\n";
                                 await EmployersContainer.AdminSender.SendAsync(msg);
                             }
-                            else if (message.isCommand("Работы"))
+                            else if (message.isCommand("Все работы"))
                             {
-                                await EmployersContainer.AdminSender.SendAsync(container.GetPlacesAsString().ToString());
+                                await EmployersContainer.AdminSender.SendAsync(string.Join("", container.GetPlacesAsString()));
                             }
                             else if (message.isCommand("Работы:"))
                             {
                                 int key;
                                 int.TryParse(Regex.Match(message.Text, @"\d+").Value, out key);
-                                await EmployersContainer.AdminSender.SendAsync(container.GetPlacesByEmployerKey(key).ToString());
+                                await EmployersContainer.AdminSender.SendAsync(string.Join("", container.GetPlacesByEmployerKey(key)));
                             }
                         }
                         offset = update.Id + 1;
@@ -220,6 +223,10 @@ namespace Job
                 }
             }
             catch (Telegram.Bot.Exceptions.ApiRequestException ex)
+            {
+                Console.WriteLine(ex.Message);
+            }
+            catch (Exception ex)
             {
                 Console.WriteLine(ex.Message);
             }
