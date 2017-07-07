@@ -1,4 +1,5 @@
-﻿using MySql.Data.MySqlClient;
+﻿using Hangfire;
+using MySql.Data.MySqlClient;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -9,36 +10,28 @@ namespace Job
 {
     class EmployersContainer
     {
+        
         private Dictionary<long, Employer> employers = new Dictionary<long, Employer>();
         private List<JobPlace> places = new List<JobPlace>();
 
         public static Sender AdminSender;
-        public static long AdminID = 295568848L;
+        public static long AdminID = 0L;
 
         public bool Contains(long EmployerID)
         {
             return employers.Keys.Contains(EmployerID);
         }
 
-        public async Task<bool> Contains(int key)
+        public bool Contains(int key)
         {
-            return await Task<bool>.FromResult(employers.Values.SingleOrDefault(x => x.Key == key) != null);
-        }
-
-        public async Task<bool> Contains(string Name)
-        {
-            Name = Name.ToLower();
-            foreach (var employer in employers)
-            {
-                if (employer.Value.Name == Name.ToLower())
-                    return await Task<bool>.FromResult(true);
-            }
-            return await Task<bool>.FromResult(false);
+            return employers.Values.SingleOrDefault(x => x.Key == key) != null;
         }
 
         public string[] GetEmployersAndKeysAsString()
         {
             List<string> str = new List<string>();
+            if (employers.Count == 0)
+                return new string[1] { "Список пуст." };
             foreach (var item in employers.Values)
             {
                 str.Add($"{item.Key} | {item.Name}\n");
@@ -59,9 +52,9 @@ namespace Job
             }
         }
 
-        public async Task<Employer> GetEmployerByKey(int key)
+        public Employer GetEmployerByKey(int key)
         {
-            return await Task<Employer>.FromResult(employers.Values.SingleOrDefault(x => x.Key == key));
+            return employers.Values.SingleOrDefault(x => x.Key == key);
         }
 
         public async Task<string> Init(Telegram.Bot.TelegramBotClient bot)
@@ -94,6 +87,11 @@ namespace Job
                     employer.Key = reader.GetInt32("ikey");
                     await con.CloseAsync();
                     employers.Add(EmployerID, employer);
+
+
+                    employer.Event = Employer.ActiveState.SetTime;
+                    RecurringJob.AddOrUpdate($"{employer.Key}", () => employer.Notify().Wait(), $"00 {employer.TimeToNotify} * * *");
+
                     return 2;
                 }
                 catch (MySqlException ex)
@@ -117,11 +115,15 @@ namespace Job
         {
             try
             {
-                employers.Remove(GetEmployerByKey(key).Result.ID);
+                employers.Remove(GetEmployerByKey(key).ID);
+                places.RemoveAll(x => x.EmployerKey == key);
+                RecurringJob.RemoveIfExists($"{key}");
                 using (var con = new MySqlConnection(BotProgram.ConnectionString))
                 {
                     var command = new MySqlCommand($"DELETE FROM employers WHERE ikey = {key};", con);
                     await con.OpenAsync();
+                    await command.ExecuteNonQueryAsync();
+                    command.CommandText = $"DELETE FROM jobs WHERE empkey = {key};";
                     await command.ExecuteNonQueryAsync();
                     await con.CloseAsync();
                 }
@@ -157,6 +159,12 @@ namespace Job
                         }
                     }
                     await con.CloseAsync();
+
+                    foreach (var item in employers.Values)
+                    {
+                        RecurringJob.AddOrUpdate($"{item.Key}", () => item.Notify().Wait(), $"00 {item.TimeToNotify} * * *");
+                    }
+
                     return true;
                 }
             }
@@ -171,12 +179,18 @@ namespace Job
         {
             List<string> list = new List<string>();
 
+
+            if (places.Count == 0)
+                return new string[1] { "Список работ пуст." };
+
             list.Add("Список работ:\n\n");
 
             foreach (var item in places)
             {
                 list.Add($"{item.Key} | {item.EmployerName} | {item.PlaceName} | {item.Salary} | {item.Time.ToString()}\n");
             }
+
+
 
             return list.ToArray();
         }
@@ -185,7 +199,10 @@ namespace Job
         {
             List<string> list = new List<string>();
 
-            string name = GetEmployerByKey(key).Result?.Name;
+            string name = GetEmployerByKey(key)?.Name;
+
+            if (places.Count(x => x.EmployerName == name) == 0)
+                return new string[1] { $"Список работ пуст у работника {name}." };
 
             list.Add($"Список работ {name}:\n\n");
 
@@ -212,7 +229,8 @@ namespace Job
                         while (await reader.ReadAsync())
                         {
                             JobPlace place = new JobPlace(reader.GetString("place"), reader.GetString("name"),
-                                reader.GetFloat("salary"), reader.GetDateTime("DateOfWork"), reader.GetInt32("ikey"));
+                                reader.GetFloat("salary"), reader.GetDateTime("DateOfWork"), reader.GetInt32("ikey"),
+                                reader.GetInt32("empkey"));
                             list.Add(place);
                         }
                     }

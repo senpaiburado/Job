@@ -10,15 +10,17 @@ namespace Job
         public string EmployerName { get; set; }
         public float Salary { get; set; }
         public int Key { get; set; }
+        public int EmployerKey { get; set; }
         public DateTime Time { get; set; }
 
-        public JobPlace(string place, string employer_name, float salary, DateTime time, int key)
+        public JobPlace(string place, string employer_name, float salary, DateTime time, int key, int empkey)
         {
             PlaceName = place;
             EmployerName = employer_name;
             Salary = salary;
             Time = time;
             Key = key;
+            EmployerKey = empkey;
         }
     }
 }

@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Text;
 using System.Threading.Tasks;
 using System.Linq;
+using Hangfire;
 
 namespace Job
 {
@@ -19,7 +20,7 @@ namespace Job
 
         public enum ActiveState
         {
-            Default, SetName, Wait, SetNameConfirm, AddDaySalary, AddDayPlace, SetTime, ResetData
+            Default, SetName, Wait, SetNameConfirm, AddDaySalary, AddDayPlace, SetTime, ResetData, ConfirmDay
         }
 
         public int Key { get; set; }
@@ -62,6 +63,24 @@ namespace Job
             temp_salary = salary;
         }
 
+        public async Task Notify()
+        {
+            if (state == State.Unsigned)
+                return;
+            if (Event == ActiveState.SetTime)
+                return;
+            await Sender.SendAsync("Работал? (Да/Нет)", new Telegram.Bot.Types.ReplyMarkups.ReplyKeyboardMarkup(new Telegram.Bot.Types.KeyboardButton[][]
+                {
+                    new Telegram.Bot.Types.KeyboardButton[]
+                    {
+                        new Telegram.Bot.Types.KeyboardButton("Да"),
+                        new Telegram.Bot.Types.KeyboardButton("Нет")
+                    }
+                },
+                resizeKeyboard: true, oneTimeKeyboard: true));
+            Event = ActiveState.ConfirmDay;
+        }
+
         public async Task AddDay(string place)
         {
             Days++;
@@ -72,7 +91,7 @@ namespace Job
                 var command = new MySqlCommand($"UPDATE employers SET days := (days+1), salary := (salary+{temp_salary}) WHERE id = {ID};", con);
                 await con.OpenAsync();
                 await command.ExecuteNonQueryAsync();
-                command.CommandText = $"INSERT INTO jobs SET name = '{Name}', place = '{place}', salary = {temp_salary}, DateOfWork = now();";
+                command.CommandText = $"INSERT INTO jobs SET name = '{Name}', place = '{place}', salary = {temp_salary}, empkey = {Key}, DateOfWork = now();";
                 await command.ExecuteNonQueryAsync();
                 await con.CloseAsync();
             }
@@ -93,6 +112,7 @@ namespace Job
                     await con.CloseAsync();
                 }
                 TimeToNotify = time;
+                RecurringJob.AddOrUpdate($"{Key}", () => Notify().Wait(), $"00 {TimeToNotify} * * *");
                 await Sender.SendAsync($"Время установлено. Уведомления будут приходить в {time}:00");
             }
             catch (Exception ex)
@@ -106,7 +126,7 @@ namespace Job
         public async Task SendRequestToConfirmEmployer()
         {
             string message = $"Работник {Name} просит Вашего подтверждения! Ключ - {Key}.\n";
-            message += $"Чтобы подтвердить, отправьте мне сообщение: \"Подтвердить: {Key}\"";
+            message += $"Чтобы подтвердить, отправьте мне сообщение: Подтвердить: {Key}\n";
             message += $"Шаблоны:\nПодтвердить: ключ\nОтклонить: ключ";
             await EmployersContainer.AdminSender.SendAsync(message);
             Event = ActiveState.Wait;
@@ -128,6 +148,7 @@ namespace Job
                     await command.ExecuteNonQueryAsync();
                     await con.CloseAsync();
                 }
+                RecurringJob.AddOrUpdate($"{Key}", () => Notify().Wait(), $"00 {TimeToNotify} * * *", timeZone: TimeZoneInfo.Local);
                 await Sender.SendAsync("Вы были подтверждены! Теперь Вам доступны команды - /commands. Удачи!");
             }
             else

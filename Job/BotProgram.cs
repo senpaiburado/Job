@@ -111,9 +111,26 @@ namespace Job
                                     {
                                         await employer.SetTime(Convert.ToInt32(message.Text));
                                     }
-                                    else
-                                        await employer.Sender.SendAsync("Допускаются числа от 0 до 23. Установите время (0-23):");
                                 }
+                                else if (employer.Event == Employer.ActiveState.ConfirmDay)
+                                {
+                                    var hkb = new Telegram.Bot.Types.ReplyMarkups.ReplyKeyboardHide();
+                                    if (message.isCommand("Да") || message.isCommand("Нет"))
+                                    {
+                                        if (message.isCommand("Да"))
+                                        {
+                                            await employer.Sender.SendAsync("Отлично! Введите зарплату:", hkb);
+                                            employer.Event = Employer.ActiveState.AddDaySalary;
+                                        }
+                                        else
+                                        {
+                                            await employer.Sender.SendAsync("Хорошо, удачи!", hkb);
+                                            employer.Event = Employer.ActiveState.Default;
+                                        }
+                                    }
+                                }
+                                else
+                                    await employer.Sender.SendAsync("Допускаются числа от 0 до 23. Установите время (0-23):");
                             }
                             else
                             {
@@ -191,31 +208,80 @@ namespace Job
                             {
                                 int key;
                                 int.TryParse(Regex.Match(message.Text, @"\d+").Value, out key);
-                                await container.GetEmployerByKey(key)?.Result?.Sender.SendAsync("Вас удалил начальник.");
-                                await container.DeleteEmployerByKey(key);
+                                if (!container.Contains(key))
+                                    await EmployersContainer.AdminSender.SendAsync("Рабочий за данным ключом не найден.");
+                                else
+                                {
+                                    await container.GetEmployerByKey(key)?.Sender.SendAsync("Вас удалил начальник.");
+                                    await container.DeleteEmployerByKey(key);
+                                }
                             }
                             else if (message.isCommand("Информация о работнике:"))
                             {
                                 int key;
                                 int.TryParse(Regex.Match(message.Text, @"\d+").Value, out key);
-                                Employer employer = await container.GetEmployerByKey(key);
-                                string msg = "Профиль:\n";
-                                msg += $"Имя и фамилия - {employer.Name}\n";
-                                msg += $"Ключ - {employer.Key}\n";
-                                msg += $"Зарплата - {employer.Salary}\n";
-                                msg += $"Дней проработано - {employer.Salary}\n";
-                                msg += $"Время уведомлений - {employer.TimeToNotify}\n";
-                                await EmployersContainer.AdminSender.SendAsync(msg);
+                                if (!container.Contains(key))
+                                    await EmployersContainer.AdminSender.SendAsync("Рабочий за данным ключом не найден.");
+                                else
+                                {
+                                    Employer employer = container.GetEmployerByKey(key);
+                                    string msg = "Профиль:\n";
+                                    msg += $"Имя и фамилия - {employer.Name}\n";
+                                    msg += $"Ключ - {employer.Key}\n";
+                                    msg += $"Зарплата - {employer.Salary}\n";
+                                    msg += $"Дней проработано - {employer.Salary}\n";
+                                    msg += $"Время уведомлений - {employer.TimeToNotify}\n";
+                                    await EmployersContainer.AdminSender.SendAsync(msg);
+                                }
                             }
                             else if (message.isCommand("Все работы"))
                             {
-                                await EmployersContainer.AdminSender.SendAsync(string.Join("", container.GetPlacesAsString()));
+                                string str = string.Join("", container.GetPlacesAsString());
+                                while (str.Count() > 4000)
+                                {
+                                    string temp = str.Take(4000).ToString();
+                                    await EmployersContainer.AdminSender.SendAsync(temp);
+                                    str.Remove(0, 4000);
+                                }
+                                await EmployersContainer.AdminSender.SendAsync(str);
                             }
                             else if (message.isCommand("Работы:"))
                             {
                                 int key;
                                 int.TryParse(Regex.Match(message.Text, @"\d+").Value, out key);
-                                await EmployersContainer.AdminSender.SendAsync(string.Join("", container.GetPlacesByEmployerKey(key)));
+                                if (container.Contains(key))
+                                    await EmployersContainer.AdminSender.SendAsync(string.Join("", container.GetPlacesByEmployerKey(key)));
+                                else
+                                    await EmployersContainer.AdminSender.SendAsync("Рабочий за данным ключом не найден.");
+                            }
+                            else if (message.isCommand("Запросы"))
+                            {
+                                if (requests.Count == 0)
+                                    await EmployersContainer.AdminSender.SendAsync("Запросов нет.");
+                                else
+                                {
+                                    string msg = "Запросы: (Ключ | Имя)\n";
+                                    foreach (var item in requests)
+                                    {
+                                        msg += $"{item.Key} | {item.Value}\n";
+                                    }
+                                    await EmployersContainer.AdminSender.SendAsync(msg);
+                                }
+                            }
+                            else if (message.isCommand("/commands"))
+                            {
+                                StringBuilder builder = new StringBuilder();
+                                builder.AppendLine("Список:");
+                                builder.AppendLine("Подтвердить - Подтвердить запрос работника. Формат: 'Подтвердить: ключ'");
+                                builder.AppendLine("Отклонить - Отклонить запрос работника. Формат: 'Отклонить: ключ'");
+                                builder.AppendLine("Список работников - Получить список всех рабочих. Формат - 'Список работников'");
+                                builder.AppendLine("Все работы - Получить список проделаных работ. Формат - 'Все работы'");
+                                builder.AppendLine("Работы - Получить список проделаных работ рабочего. Формат - 'Работы: ключ'");
+                                builder.AppendLine("Информация о работнике - Получить профиль рабочего. Формат - 'Информация о работнике: ключ'");
+                                builder.AppendLine("Запросы - Получить список всех активных запросов. Формат - 'Запросы'");
+                                builder.AppendLine("Удалить - Удалить рабочего из данных. Формат - 'Удалить: ключ'");
+                                builder.AppendLine("Ключ - уникальный индентификатор рабочего. Узнать можно используя команду 'Список работников'");
+                                await EmployersContainer.AdminSender.SendAsync(builder.ToString());
                             }
                         }
                         offset = update.Id + 1;
@@ -234,7 +300,7 @@ namespace Job
 
         private async Task<bool> SendAnswer(bool answer, int key)
         {
-            if (!await container.Contains(key))
+            if (!container.Contains(key))
             {
                 await EmployersContainer.AdminSender.SendAsync($"Работник не найден за ключом {key}");
                 return false;
@@ -244,7 +310,7 @@ namespace Job
                 await EmployersContainer.AdminSender.SendAsync($"Этот работник не отправлял запрос! ({key})");
                 return false;
             }
-            Employer employer = await container.GetEmployerByKey(key);
+            Employer employer = container.GetEmployerByKey(key);
             if (answer)
             {
                 await employer.GetAnswerFromChief(true);
