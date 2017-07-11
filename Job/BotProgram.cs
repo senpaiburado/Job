@@ -22,8 +22,15 @@ namespace Job
                 container = new EmployersContainer();
                 Bot = new TelegramBotClient(Token);
                 await container.Init(Bot);
+                TimeChecker.SetEmployersList(container.GetMap());
+                TimeChecker.Start();
                 await Bot.SetWebhookAsync("");
                 int offset = 0;
+
+                // Admin vars
+                bool gettingmoney = false;
+                int temp_key = 0;
+
                 while (true)
                 {
                     var updates = await Bot.GetUpdatesAsync(offset);
@@ -61,7 +68,8 @@ namespace Job
                                         msg += $"Имя и фамилия - {employer.Name}\n";
                                         msg += $"Ключ - {employer.Key}\n";
                                         msg += $"Зарплата - {employer.Salary}\n";
-                                        msg += $"Дней проработано - {employer.Salary}\n";
+                                        msg += $"Аванс - {employer.Prepayment}\n";
+                                        msg += $"Дней проработано - {employer.Days}\n";
                                         msg += $"Время уведомлений - {employer.TimeToNotify}\n";
                                         await employer.Sender.SendAsync(msg);
                                     }
@@ -82,6 +90,19 @@ namespace Job
                                         msg += "/get_info - Получить информацию о себе\n";
                                         msg += "/get_places - Получить список мест, где Вы работали\n";
                                         await employer.Sender.SendAsync(msg);
+                                    }
+                                    else if (message.isCommand("/reset"))
+                                    {
+                                        employer.Event = Employer.ActiveState.ResetData;
+                                        var kb = new Telegram.Bot.Types.ReplyMarkups.ReplyKeyboardMarkup(new Telegram.Bot.Types.KeyboardButton[][]
+                                        {
+                                            new Telegram.Bot.Types.KeyboardButton[]
+                                            {
+                                                new Telegram.Bot.Types.KeyboardButton("Да"),
+                                                new Telegram.Bot.Types.KeyboardButton("Нет")
+                                            }
+                                        }, resizeKeyboard: true, oneTimeKeyboard: true);
+                                        await employer.Sender.SendAsync("Подтверждаете? (Да/Нет)", kb);
                                     }
                                     else
                                     {
@@ -111,6 +132,8 @@ namespace Job
                                     {
                                         await employer.SetTime(Convert.ToInt32(message.Text));
                                     }
+                                    else
+                                        await employer.Sender.SendAsync("Допускаются числа от 0 до 23. Установите время (0-23):");
                                 }
                                 else if (employer.Event == Employer.ActiveState.ConfirmDay)
                                 {
@@ -129,8 +152,23 @@ namespace Job
                                         }
                                     }
                                 }
-                                else
-                                    await employer.Sender.SendAsync("Допускаются числа от 0 до 23. Установите время (0-23):");
+                                else if (employer.Event == Employer.ActiveState.ResetData)
+                                {
+                                    var hkb = new Telegram.Bot.Types.ReplyMarkups.ReplyKeyboardHide();
+                                    employer.Event = Employer.ActiveState.Default;
+                                    if (message.isCommand("Да") || message.isCommand("Нет"))
+                                    {
+                                        if (message.isCommand("Да"))
+                                        {
+                                            await employer.Reset();
+                                        }
+                                        else
+                                        {
+                                            await employer.Sender.SendAsync("Хорошо, удачи!", hkb);
+                                            employer.Event = Employer.ActiveState.Default;
+                                        }
+                                    }
+                                }
                             }
                             else
                             {
@@ -183,13 +221,13 @@ namespace Job
                             {
                                 await EmployersContainer.AdminSender.SendAsync("Здравствуйте! Список команд - /commands.");
                             }
-                            else if (message.isCommand("Подтвердить:"))
+                            else if (message.isCommand("Подтвердить"))
                             {
                                 int key;
                                 int.TryParse(Regex.Match(message.Text, @"\d+").Value, out key);
                                 await SendAnswer(true, key);
                             }
-                            else if (message.isCommand("Отклонить:"))
+                            else if (message.isCommand("Отклонить"))
                             {
                                 int key;
                                 int.TryParse(Regex.Match(message.Text, @"\d+").Value, out key);
@@ -204,7 +242,7 @@ namespace Job
                                 }
                                 await EmployersContainer.AdminSender.SendAsync(msg);
                             }
-                            else if (message.isCommand("Удалить:"))
+                            else if (message.isCommand("Удалить"))
                             {
                                 int key;
                                 int.TryParse(Regex.Match(message.Text, @"\d+").Value, out key);
@@ -216,7 +254,7 @@ namespace Job
                                     await container.DeleteEmployerByKey(key);
                                 }
                             }
-                            else if (message.isCommand("Информация о работнике:"))
+                            else if (message.isCommand("Инфо"))
                             {
                                 int key;
                                 int.TryParse(Regex.Match(message.Text, @"\d+").Value, out key);
@@ -229,7 +267,8 @@ namespace Job
                                     msg += $"Имя и фамилия - {employer.Name}\n";
                                     msg += $"Ключ - {employer.Key}\n";
                                     msg += $"Зарплата - {employer.Salary}\n";
-                                    msg += $"Дней проработано - {employer.Salary}\n";
+                                    msg += $"Аванс - {employer.Prepayment}\n";
+                                    msg += $"Дней проработано - {employer.Days}\n";
                                     msg += $"Время уведомлений - {employer.TimeToNotify}\n";
                                     await EmployersContainer.AdminSender.SendAsync(msg);
                                 }
@@ -245,7 +284,7 @@ namespace Job
                                 }
                                 await EmployersContainer.AdminSender.SendAsync(str);
                             }
-                            else if (message.isCommand("Работы:"))
+                            else if (message.isCommand("Работы"))
                             {
                                 int key;
                                 int.TryParse(Regex.Match(message.Text, @"\d+").Value, out key);
@@ -272,16 +311,52 @@ namespace Job
                             {
                                 StringBuilder builder = new StringBuilder();
                                 builder.AppendLine("Список:");
-                                builder.AppendLine("Подтвердить - Подтвердить запрос работника. Формат: 'Подтвердить: ключ'");
-                                builder.AppendLine("Отклонить - Отклонить запрос работника. Формат: 'Отклонить: ключ'");
-                                builder.AppendLine("Список работников - Получить список всех рабочих. Формат - 'Список работников'");
+                                builder.AppendLine("Подтвердить - Подтвердить запрос работника. Формат: 'Подтвердить ключ'");
+                                builder.AppendLine("Отклонить - Отклонить запрос работника. Формат: 'Отклонить ключ'");
+                                builder.AppendLine("Аванс - Записать аванс рабочему. Формат: 'Аванс ключ'");
+                                builder.AppendLine("Список рабочих - Получить список всех рабочих. Формат - 'Список рабочих'");
                                 builder.AppendLine("Все работы - Получить список проделаных работ. Формат - 'Все работы'");
-                                builder.AppendLine("Работы - Получить список проделаных работ рабочего. Формат - 'Работы: ключ'");
-                                builder.AppendLine("Информация о работнике - Получить профиль рабочего. Формат - 'Информация о работнике: ключ'");
+                                builder.AppendLine("Работы - Получить список проделаных работ рабочего. Формат - 'Работы ключ'");
+                                builder.AppendLine("Инфо - Получить профиль рабочего. Формат - 'Инфо ключ'");
                                 builder.AppendLine("Запросы - Получить список всех активных запросов. Формат - 'Запросы'");
-                                builder.AppendLine("Удалить - Удалить рабочего из данных. Формат - 'Удалить: ключ'");
-                                builder.AppendLine("Ключ - уникальный индентификатор рабочего. Узнать можно используя команду 'Список работников'");
+                                builder.AppendLine("Удалить - Удалить рабочего из данных. Формат - 'Удалить ключ'");
+                                builder.AppendLine("Ключ - уникальный индентификатор рабочего. Узнать можно используя команду 'Список рабочих'");
                                 await EmployersContainer.AdminSender.SendAsync(builder.ToString());
+                            }
+                            else if (message.isCommand("Аванс"))
+                            {
+                                int key;
+                                int.TryParse(Regex.Match(message.Text, @"\d+").Value, out key);
+                                if (!container.Contains(key))
+                                    await EmployersContainer.AdminSender.SendAsync("Рабочий за данным ключом не найден.");
+                                else
+                                {
+                                    temp_key = key;
+                                    gettingmoney = true;
+                                    await EmployersContainer.AdminSender.SendAsync("Введите сумму:");
+                                }
+                            }
+                            else
+                            {
+                                if (gettingmoney)
+                                {
+                                    float money = 0.0f;
+                                    float.TryParse(Regex.Match(message.Text, @"\d+").Value, out money);
+                                    Employer emp = container.GetEmployerByKey(temp_key);
+                                    if (emp != null)
+                                    {
+                                        emp.Prepayment = money;
+                                        await EmployersContainer.AdminSender.SendAsync($"Вы установили аванс ({money}) рабочему {emp.Name}.");
+                                        await emp.Sender.SendAsync($"Начальство установило вам аванс - {money}.");
+                                    }
+                                    else
+                                        await EmployersContainer.AdminSender.SendAsync("Рабочий не найден или был удалён.");
+                                    money = 0;
+                                    temp_key = 0;
+                                    gettingmoney = false;
+                                }
+                                else
+                                    await EmployersContainer.AdminSender.SendAsync("Неизвестная команда. Проверьте правильность набора.");
                             }
                         }
                         offset = update.Id + 1;

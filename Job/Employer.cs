@@ -4,7 +4,6 @@ using System.Collections.Generic;
 using System.Text;
 using System.Threading.Tasks;
 using System.Linq;
-using Hangfire;
 
 namespace Job
 {
@@ -27,7 +26,7 @@ namespace Job
 
         public int Days { get; set; }
         public float Salary { get; set; }
-
+        public float Prepayment { get; set; }
         public int TimeToNotify { get; set; }
 
         public State state { get; set; }
@@ -36,6 +35,8 @@ namespace Job
         private float temp_salary { get; set; }
 
         public bool ResetConfirming { get; set; }
+
+        private bool isNotified = false;
 
         public Employer(string name, long ChatId, Telegram.Bot.TelegramBotClient sender, bool signed)
         {
@@ -65,11 +66,9 @@ namespace Job
 
         public async Task Notify()
         {
-            if (state == State.Unsigned)
-                return;
-            if (Event == ActiveState.SetTime)
-                return;
-            await Sender.SendAsync("Работал? (Да/Нет)", new Telegram.Bot.Types.ReplyMarkups.ReplyKeyboardMarkup(new Telegram.Bot.Types.KeyboardButton[][]
+            if (DateTime.Now.Hour == TimeToNotify && !isNotified)
+            {
+                await Sender.SendAsync("Работал? (Да/Нет)", new Telegram.Bot.Types.ReplyMarkups.ReplyKeyboardMarkup(new Telegram.Bot.Types.KeyboardButton[][]
                 {
                     new Telegram.Bot.Types.KeyboardButton[]
                     {
@@ -78,7 +77,11 @@ namespace Job
                     }
                 },
                 resizeKeyboard: true, oneTimeKeyboard: true));
-            Event = ActiveState.ConfirmDay;
+                Event = ActiveState.ConfirmDay;
+                isNotified = true;
+            }
+            else if (DateTime.Now.Hour != TimeToNotify && isNotified)
+                isNotified = false;
         }
 
         public async Task AddDay(string place)
@@ -112,7 +115,7 @@ namespace Job
                     await con.CloseAsync();
                 }
                 TimeToNotify = time;
-                RecurringJob.AddOrUpdate($"{Key}", () => Notify().Wait(), $"00 {TimeToNotify} * * *");
+                //RecurringJob.AddOrUpdate($"{Key}", () => Notify().Wait(), $"00 {TimeToNotify} * * *");
                 await Sender.SendAsync($"Время установлено. Уведомления будут приходить в {time}:00");
             }
             catch (Exception ex)
@@ -148,7 +151,7 @@ namespace Job
                     await command.ExecuteNonQueryAsync();
                     await con.CloseAsync();
                 }
-                RecurringJob.AddOrUpdate($"{Key}", () => Notify().Wait(), $"00 {TimeToNotify} * * *", timeZone: TimeZoneInfo.Local);
+                //RecurringJob.AddOrUpdate($"{Key}", () => Notify().Wait(), $"00 {TimeToNotify} * * *", timeZone: TimeZoneInfo.Local);
                 await Sender.SendAsync("Вы были подтверждены! Теперь Вам доступны команды - /commands. Удачи!");
             }
             else
@@ -165,16 +168,17 @@ namespace Job
             {
                 using (var con = new MySqlConnection(BotProgram.ConnectionString))
                 {
-                    var command = new MySqlCommand($"UPDATE employers SET days = 0, salary = 0 WHERE ikey = {Key};", con);
+                    var command = new MySqlCommand($"UPDATE employers SET days = 0, salary = 0.0, prepayment = 0.0 WHERE ikey = {Key};", con);
                     await con.OpenAsync();
                     await command.ExecuteNonQueryAsync();
                     await con.CloseAsync();
                 }
                 ResetConfirming = false;
                 Days = 0;
-                Salary = 0;
-                await Sender.SendAsync("Количество дней и денег сброшено.");
-                await EmployersContainer.AdminSender.SendAsync($"{Name} (Ключ: {Key}) сбросил значения дней и денег.");
+                Salary = 0.0f;
+                Prepayment = 0.0f;
+                await Sender.SendAsync("Значение дней, денег и аванса сброшено.");
+                await EmployersContainer.AdminSender.SendAsync($"{Name} (Ключ: {Key}) сбросил значения дней, денег и аванса.");
             }
             catch (Exception ex)
             {

@@ -1,4 +1,4 @@
-﻿using Hangfire;
+﻿
 using MySql.Data.MySqlClient;
 using System;
 using System.Collections.Generic;
@@ -15,7 +15,7 @@ namespace Job
         private List<JobPlace> places = new List<JobPlace>();
 
         public static Sender AdminSender;
-        public static long AdminID = 0L;
+        public static long AdminID = 295568848;
 
         public bool Contains(long EmployerID)
         {
@@ -25,6 +25,11 @@ namespace Job
         public bool Contains(int key)
         {
             return employers.Values.SingleOrDefault(x => x.Key == key) != null;
+        }
+
+        public Dictionary<long, Employer> GetMap()
+        {
+            return employers;
         }
 
         public string[] GetEmployersAndKeysAsString()
@@ -37,6 +42,11 @@ namespace Job
                 str.Add($"{item.Key} | {item.Name}\n");
             }
             return str.ToArray();
+        }
+
+        public List<Employer> GetEmployersAsList()
+        {
+            return employers.Values.ToList();
         }
 
         public Employer GetEmployerByID(long ID)
@@ -61,7 +71,7 @@ namespace Job
         {
             AdminSender = new Sender(AdminID, bot);
             if (!await RestoreFromDatabase())
-                return "Ошибка восстановления из базы данных!";
+                throw new Exception("Ошибка восстановления из базы данных.");
             InitSenders(bot);
             return "Данные успешно восстановлены!";
         }
@@ -88,9 +98,8 @@ namespace Job
                     await con.CloseAsync();
                     employers.Add(EmployerID, employer);
 
-
                     employer.Event = Employer.ActiveState.SetTime;
-                    RecurringJob.AddOrUpdate($"{employer.Key}", () => employer.Notify().Wait(), $"00 {employer.TimeToNotify} * * *");
+                    //RecurringJob.AddOrUpdate($"{employer.Key}", () => employer.Notify().Wait(), $"00 {employer.TimeToNotify} * * *");
 
                     return 2;
                 }
@@ -117,7 +126,6 @@ namespace Job
             {
                 employers.Remove(GetEmployerByKey(key).ID);
                 places.RemoveAll(x => x.EmployerKey == key);
-                RecurringJob.RemoveIfExists($"{key}");
                 using (var con = new MySqlConnection(BotProgram.ConnectionString))
                 {
                     var command = new MySqlCommand($"DELETE FROM employers WHERE ikey = {key};", con);
@@ -155,15 +163,11 @@ namespace Job
                             emp.Salary = reader.GetFloat("salary");
                             emp.Key = reader.GetInt32("ikey");
                             emp.TimeToNotify = reader.GetInt32("notify_time");
+                            emp.Prepayment = reader.GetFloat("prepayment");
                             employers.Add(emp.ID, emp);
                         }
                     }
                     await con.CloseAsync();
-
-                    foreach (var item in employers.Values)
-                    {
-                        RecurringJob.AddOrUpdate($"{item.Key}", () => item.Notify().Wait(), $"00 {item.TimeToNotify} * * *");
-                    }
 
                     return true;
                 }
